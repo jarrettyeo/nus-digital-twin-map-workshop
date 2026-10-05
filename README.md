@@ -1,13 +1,3 @@
-id: build-nus-3d-digital-twin-antigravity
-summary: Build a 3D NUS Campus Digital Twin and real-time shuttle bus tracker using OpenStreetMap and Spec-Driven Development in Google Antigravity.
-categories: AI Agents, Web, Next.js, Geospatial, 3D, TypeScript
-environments: Web
-status: Published
-feedback link: https://github.com/nusmodifications/nusmods
-authors: Jarrett Yeo
-keywords: docType:Codelab,category:AiAndMachineLearning,category:Web,product:Antigravity,product:GoogleCloud,product:Gemini,language:TypeScript,framework:Nextjs
-layout: scrolling
-
 # Build a 3D NUS Campus Digital Twin & Live Transit Tracker with Spec-Driven Development in Google Antigravity
 
 ![3D NUS Digital Twin Banner](images/digital-twin-map-3d.png)
@@ -74,19 +64,16 @@ In this workshop, you will practice **Spec-Driven Development (SDD)** with **Goo
 2. **Implementation Planning (`/plan`)**: Instruct Antigravity to analyze your rules and generate an `implementation_plan.md` architectural blueprint, synthesizing the entire working application in one shot.
 3. **Interactive Design Discovery (`/grill-me`)**: Interview Antigravity with specialized design skills to customize and elevate the command center UI to production-grade polish.
 
-<aside class="positive">
-<b>What You Will Learn:</b>
-<ul>
-  <li>How to configure Antigravity workspace rules (<code>.agents/rules/workspace.md</code>) to enforce geospatial, 3D graphics, and university API standards.</li>
-  <li>How to use <b>Planning Mode (<code>/plan</code>)</b> to generate an entire production-grade full-stack 3D application from architectural specifications.</li>
-  <li>How to consume the <b>NUS Digital Twin API</b> (<code>nus-digital-twin.com/api/v1/buildings</code>) for building footprints and energy intensity metrics.</li>
-  <li>How to connect to the authenticated <b>NUS NextBus API</b> for real-time stop coordinates, active telemetry, and live arrival countdowns (ETAs) without fake simulations.</li>
-  <li>How to render a 3D vector map with <b>MapLibre GL JS</b>, building extrusions, and vertical <b>3D Energy Pillars</b> color-coded Green/Yellow/Red by EUI.</li>
-  <li>How to engineer a revised <b>3D Bus renderer</b> with Three.js proper layer ordering (bus above route lines), self-illuminating materials (vibrant orange roof <code>#FF7200</code>, white chassis, glowing headlights), and 2.5x Mercator scaling.</li>
-  <li>How to use <b>Agent Skills</b> and <b>Interactive Discovery (<code>/grill-me</code>)</b> to interview Antigravity and dynamically restyle the command center UI.</li>
-  <li>How to deploy the full-stack digital twin to <b>Vercel Serverless Edge</b>.</li>
-</ul>
-</aside>
+> [!NOTE]
+> **What You Will Learn:**
+> - How to configure Antigravity workspace rules (`.agents/rules/workspace.md`) to enforce geospatial, 3D graphics, and university API standards.
+> - How to use **Planning Mode (`/plan`)** to generate an entire production-grade full-stack 3D application from architectural specifications.
+> - How to consume the **NUS Digital Twin API** (`nus-digital-twin.com/api/v1/buildings`) for building footprints and energy intensity metrics.
+> - How to connect to the authenticated **NUS NextBus API** for real-time stop coordinates, active telemetry, and live arrival countdowns (ETAs) without fake simulations.
+> - How to render a 3D vector map with **MapLibre GL JS**, building extrusions, and vertical **3D Energy Pillars** color-coded Green/Yellow/Red by EUI.
+> - How to engineer a revised **3D Bus renderer** with Three.js proper layer ordering (bus above route lines), self-illuminating materials (vibrant orange roof `#FF7200`, white chassis, glowing headlights), and 2.5x Mercator scaling.
+> - How to use **Agent Skills** and **Interactive Discovery (`/grill-me`)** to interview Antigravity and dynamically restyle the command center UI.
+> - How to deploy the full-stack digital twin to **Vercel Serverless Edge**.
 
 ---
 
@@ -122,15 +109,12 @@ npm install -D tsx @types/node
 
 ![Scaffold Next.js Project and Dependencies](images/scaffold-project.png)
 
-<aside class="positive">
-<b>Key Libraries Explained:</b>
-<ul>
-  <li><b><code>maplibre-gl</code></b>: The open-source, community-led WebGL vector mapping engine fork of Mapbox GL. Delivers 60 FPS 3D map rendering, pitch, bearing, and native 3D <code>fill-extrusion</code> layers with zero proprietary license keys.</li>
-  <li><b><code>three</code> & <code>@types/three</code></b>: High-performance JavaScript 3D engine used for custom 3D mesh rendering, lighting, materials, and Mercator coordinate transformations.</li>
-  <li><b><code>lucide-react</code></b>: Crisp, accessible vector icons for the digital twin HUD and analytics charts.</li>
-  <li><b><code>tsx</code></b>: TypeScript Execute — runs Node.js TypeScript scripts directly for instant verification without compiling.</li>
-</ul>
-</aside>
+> [!TIP]
+> **Key Libraries Explained:**
+> - **`maplibre-gl`**: The open-source, community-led WebGL vector mapping engine fork of Mapbox GL. Delivers 60 FPS 3D map rendering, pitch, bearing, and native 3D `fill-extrusion` layers with zero proprietary license keys.
+> - **`three` & `@types/three`**: High-performance JavaScript 3D engine used for custom 3D mesh rendering, lighting, materials, and Mercator coordinate transformations.
+> - **`lucide-react`**: Crisp, accessible vector icons for the digital twin HUD and analytics charts.
+> - **`tsx`**: TypeScript Execute — runs Node.js TypeScript scripts directly for instant verification without compiling.
 
 ---
 
@@ -159,10 +143,9 @@ Save the file using `Ctrl+S` (Windows) or `Cmd+S` (Mac).
 
 ![Save .env.local Configuration](images/save-env-local.png)
 
-<aside class="negative">
-<b>Security & Quotation Note:</b>
-The NextBus password contains special characters (<code>^</code>, <code>"</code>, <code>?</code>). Always wrap it in single quotes (<code>'13dL?zY,3feWR^"T'</code>) in your <code>.env.local</code> to prevent shell expansion errors.
-</aside>
+> [!WARNING]
+> **Security & Quotation Note:**
+> The NextBus password contains special characters (`^`, `"`, `?`). Always wrap it in single quotes (`'13dL?zY,3feWR^"T'`) in your `.env.local` to prevent shell expansion errors.
 
 ---
 
@@ -267,10 +250,9 @@ Detail the file creations and verification steps for:
 ### Reviewing & Executing the Implementation Plan
 Antigravity will create the `implementation_plan.md` artifact detailing each component's inputs, outputs, error handling strategies, and verification commands.
 
-<aside class="negative">
-<b>Implementation Plan Troubleshooting:</b>
-If the <b>Implementation Plan</b> artifact does not appear after submitting the <code>/plan</code> prompt, start a new conversation by clicking the <b>+</b> (New Chat) button at the top of the Antigravity chat panel and re-run the prompt.
-</aside>
+> [!IMPORTANT]
+> **Implementation Plan Troubleshooting:**
+> If the **Implementation Plan** artifact does not appear after submitting the `/plan` prompt, start a new conversation by clicking the **+** (New Chat) button at the top of the Antigravity chat panel and re-run the prompt.
 
 1. In the Antigravity chat, click on **Implementation Plan** to open the plan viewer in your editor. Review the planned files and architecture.
 
@@ -280,7 +262,8 @@ If the <b>Implementation Plan</b> artifact does not appear after submitting the 
 
 ![Review Implementation Plan and Click Proceed](images/agy-plan-proceed.png)
 
-> 💡 **UI Guide**: In the implementation plan editor tab, click the **Proceed** button in the top right corner to start autonomous code generation.
+> [!TIP]
+> **UI Guide**: In the implementation plan editor tab, click the **Proceed** button in the top right corner to start autonomous code generation.
 
 3. Antigravity will autonomously generate all the project files according to the approved plan. In the following phases, we will inspect, test, and verify each layer of the application.
 4. Once Antigravity finishes generating the files, click **Accept all** on the review bar to accept all changes into your workspace.
@@ -305,7 +288,8 @@ Take a few moments to open and explore each file in VS Code to see how Antigravi
   1. `campus-3d-buildings`: Base physical footprints extruded to real building heights.
   2. `campus-energy-pillars`: 14m x 14m core rooftop pillars rising proportionally to EUI (`height + eui * 0.75`), styled dynamically with MapLibre's `step` expression (Green `<160`, Yellow `160-200`, Red `>200`).
 
-> 💡 **Poke Around**: Open `lib/threeBusLayer.ts` in VS Code. Look at how `coord.meterInMercatorCoordinateUnits() * 2.5` scales the Three.js mesh and how `map.triggerRepaint()` drives the WebGL render loop!
+> [!TIP]
+> **Explore the WebGL Render Loop**: Open `lib/threeBusLayer.ts` in VS Code. Look at how `coord.meterInMercatorCoordinateUnits() * 2.5` scales the Three.js mesh and how `map.triggerRepaint()` drives the WebGL render loop!
 
 ---
 
@@ -323,13 +307,10 @@ npm run dev
 
 ![Run Next.js Dev Server](images/npm-run-dev.png)
 
-<aside class="negative">
-<b>Terminal Directory Troubleshooting:</b>
-<ul>
-  <li><b><code>ENOENT: Could not read package.json</code></b>: Your terminal is at the workspace root instead of the project directory. Run <code>cd nus-digital-twin</code> first, then run <code>npm run dev</code>.</li>
-  <li><b><code>cd: no such file or directory / Cannot find path</code></b>: Your active terminal is already inside <code>nus-digital-twin</code>. Simply run <code>npm run dev</code> directly without <code>cd</code>.</li>
-</ul>
-</aside>
+> [!WARNING]
+> **Terminal Directory Troubleshooting:**
+> - **`ENOENT: Could not read package.json`**: Your terminal is at the workspace root instead of the project directory. Run `cd nus-digital-twin` first, then run `npm run dev`.
+> - **`cd: no such file or directory / Cannot find path`**: Your active terminal is already inside `nus-digital-twin`. Simply run `npm run dev` directly without `cd`.
 
 ### 2. Explore the Digital Twin in Your Browser
 Open `http://localhost:3000` in Google Chrome:
@@ -385,6 +366,7 @@ npx skills add Leonxlnx/taste-skill -y
 
 ![Install Taste Skill with npx](images/npx-skills-run.png)
 
+> [!NOTE]
 > **Why `-y`?**: The `-y` flag skips interactive prompts and automatically selects all design skills for Antigravity, copying them directly into `.agents/skills/`.
 
 ---
@@ -407,7 +389,8 @@ Grill me with questions about my preferred visual aesthetics (e.g., Cyberpunk Ne
 
 ![Interactive Design Questions in Antigravity](images/agy-grillme-questions.png)
 
-> 💡 **UI Guide**: Antigravity presents interactive multiple-choice cards directly in the chat panel to resolve creative and architectural decisions before writing code.
+> [!TIP]
+> **UI Guide**: Antigravity presents interactive multiple-choice cards directly in the chat panel to resolve creative and architectural decisions before writing code.
 
 3. Antigravity will synthesize your preferences into an updated implementation plan. Click **Proceed**.
 4. Antigravity will refactor `app/page.tsx`, `components/MapCanvas.tsx`, and `components/CampusEnergyChart.tsx` according to your aesthetic choices. Click **Accept all** when prompted.
