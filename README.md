@@ -99,7 +99,6 @@ In this step, you will initialize the Next.js TypeScript project, install modern
 Ensure your development environment meets these requirements:
 * **Node.js**: Version `18.17.0` or higher (`node -v`). Download from [nodejs.org](https://nodejs.org/).
 * **Visual Studio Code** with the **Google Antigravity Extension** installed and authenticated.
-* **Vercel Account**: A free Hobby account from [vercel.com/signup](https://vercel.com/signup) for Phase 5 (optional challenge).
 
 ### 2. Scaffold the Next.js TypeScript Project
 1. Open **Visual Studio Code**.
@@ -110,18 +109,18 @@ Ensure your development environment meets these requirements:
 3. Run the following commands to scaffold the project and install all required dependencies:
 
 ```bash
-# 1. Scaffold Next.js App Router with TypeScript and Tailwind CSS
-npx create-next-app@latest nus-digital-twin --typescript --tailwind --eslint --app --src-dir=false --import-alias="@/*" --use-npm --yes
+# 1. Scaffold Next.js App Router with TypeScript and Tailwind CSS (single line works across Windows & Mac)
+npx create-next-app@latest nus-digital-twin --typescript --tailwind --no-eslint --app --src-dir=false --import-alias="@/*" --use-npm --yes
 
-# 2. Enter project directory
+# 2. Step into the created project directory
 cd nus-digital-twin
 
 # 3. Install geospatial, 3D math, icon, and utility dependencies
 npm install maplibre-gl three @types/three lucide-react dotenv
-
-# 4. Install dev-time TypeScript execution tools
 npm install -D tsx @types/node
 ```
+
+![Scaffold Next.js Project and Dependencies](images/scaffold-project.png)
 
 <aside class="positive">
 <b>Key Libraries Explained:</b>
@@ -137,7 +136,12 @@ npm install -D tsx @types/node
 
 ### 3. Create Environment Configuration (`.env.local`)
 1. In the VS Code file explorer sidebar, right-click on the `nus-digital-twin` folder and select **New File**.
+
+![Create New File in nus-digital-twin](images/create-env-file.png)
+
 2. Name the new file `.env.local`.
+
+![Name File .env.local](images/name-env-file.png)
 
 3. Add the following university API configuration:
 
@@ -151,6 +155,10 @@ NEXTBUS_PASSWORD='13dL?zY,3feWR^"T'
 NUS_DIGITAL_TWIN_API="https://www.nus-digital-twin.com/api/v1/buildings"
 ```
 
+Save the file using `Ctrl+S` (Windows) or `Cmd+S` (Mac).
+
+![Save .env.local Configuration](images/save-env-local.png)
+
 <aside class="negative">
 <b>Security & Quotation Note:</b>
 The NextBus password contains special characters (<code>^</code>, <code>"</code>, <code>?</code>). Always wrap it in single quotes (<code>'13dL?zY,3feWR^"T'</code>) in your <code>.env.local</code> to prevent shell expansion errors.
@@ -161,12 +169,16 @@ The NextBus password contains special characters (<code>^</code>, <code>"</code>
 ### 4. Establish Antigravity Rules (`.agents/rules/workspace.md`)
 Antigravity uses workspace rules inside `.agents/rules/` to ground its code generator on project-specific architectural decisions, preventing hallucinated packages or conflicting GIS conventions.
 
-1. In your VS Code terminal, create the rules directory:
-```bash
-mkdir -p .agents/rules
+1. In the VS Code file explorer sidebar, select the `nus-digital-twin` folder and click the **New File** icon (or right-click `nus-digital-twin` > **New File**).
+2. In the filename input box, type the nested path:
+```text
+.agents/rules/workspace.md
 ```
+and press `Enter`. *(VS Code automatically generates both the `.agents` and `rules` folders simultaneously on both Windows and Mac).*
 
-2. Create `.agents/rules/workspace.md` and insert the following rules:
+![Create Workspace Rules File](images/create-workspace-rules.png)
+
+3. Double-click `workspace.md` to open it, paste the following rules into the editor, and save using `Ctrl+S` (Windows) or `Cmd+S` (Mac):
 
 ```markdown
 # NUS 3D Digital Twin & Transit Tracker Rules
@@ -174,8 +186,17 @@ mkdir -p .agents/rules
 ## Technology Stack & Architectural Conventions
 - Framework: Next.js 14/15 App Router with TypeScript and Tailwind CSS.
 - Map Engine: MapLibre GL JS (`maplibre-gl`). Always import `maplibre-gl/dist/maplibre-gl.css`.
+- Basemap: OpenFreeMap Dark Mode vector style (`https://tiles.openfreemap.org/styles/dark`). 100% free, open CORS, zero API keys, zero rate limits, and zero watermarks. Do NOT use Carto or Mapbox tile URLs.
 - 3D Rendering: Three.js (`three`) for custom 3D vehicle models, lighting, and spatial calculations.
-- Client-Side Rendering: MapLibre GL uses browser `window` and `WebGLRenderingContext`. Always wrap map components in Next.js dynamic client import (`dynamic(() => import(...), { ssr: false })`) or `'use client'`.
+
+## Client-Side Isolation & WebGL Zero-SSR Rule
+- Mandatory Client-Only Map Import: MapLibre GL and Three.js access browser-only globals (`window`, `document`, `WebGLRenderingContext`). In `app/page.tsx`, you MUST import `MapCanvas` exclusively via Next.js dynamic client import with `{ ssr: false }`:
+  `const MapCanvas = dynamic(() => import('@/components/MapCanvas'), { ssr: false });`
+  NEVER import `maplibre-gl` or Three.js in any server component or code evaluated during server-side rendering.
+
+## Payload Size & Data Ingestion Hygiene (< 128 kB)
+- Client-Side Data Fetching: `app/page.tsx` must be a client component (`'use client'`). Do NOT fetch buildings on the server during page SSR. Fetch buildings (`/api/buildings`) and live transit (`/api/transit/buses`) inside `useEffect()` on the client side. This prevents serializing 900+ kB of campus GeoJSON into initial server HTML props and prevents Next.js `large-page-data` warnings.
+- Route Handler Payload Pruning: In `/api/buildings`, return lean building records (`elementId`, `name`, `latitude`, `longitude`, `height`, `category`, and annual `eui`). Generate or load detailed 12-month breakdowns on-demand or inside the client side to keep initial JSON under 100 kB.
 
 ## Geospatial Anchors & NUS Campus Coordinates
 - Kent Ridge Campus Center: `[103.7745, 1.2970]` (Longitude, Latitude).
@@ -203,30 +224,15 @@ mkdir -p .agents/rules
   - Efficient (< 160 kWh/m²): Green `#10B981`
   - Moderate (160–200 kWh/m²): Yellow `#F59E0B`
   - Energy Intensive (> 200 kWh/m²): Red `#EF4444`
-- Revised 3D Bus Renderer (`nus-shuttle-bus-3d`): Three.js custom layer registered strictly *after* route polylines (layer ordering: roads -> routes -> 3D buses). Self-illuminating materials (vibrant orange roof `#FF7200`, crisp white chassis, warm white glowing headlights, taillights, rubber wheels) with 2.5x Mercator scaling (`meterInMercatorCoordinateUnits() * 2.5`).
+- Revised 3D Bus Renderer (`nus-shuttle-bus-3d`): Three.js custom layer registered strictly *after* route polylines (layer ordering: roads -> routes -> 3D buses). Self-illuminating materials (vibrant orange roof `#FF7200`, crisp white chassis, warm white glowing headlights, taillights, rubber wheels) with 2.5x scale factor.
+- Three.js Local Campus Matrix Anchor: In `lib/threeBusLayer.ts`, extract the camera projection matrix from `options?.defaultProjectionData?.mainMatrix` (or `options` if passed as a `Float64Array`) to obtain MapLibre's Mercator matrix. Anchor it to Kent Ridge Center `[103.7745, 1.2970]` using double-precision matrix multiplication (`camera.projectionMatrix = m.multiply(l)`, where `l` translates to the campus origin and scales with `meterInMercatorCoordinateUnits()`). Position each active bus in local meters `(dx, dy, dz)` relative to Kent Ridge Center so WebGL 32-bit float shaders render crisp, full-sized 3D vehicles without precision loss or depth clipping.
+- MapLibre Async Data Synchronization: `components/MapCanvas.tsx` must store incoming `activeBuses`, `buildingsGeoJson`, and `stopsAndRoutesGeoJson` in `useRef`s or sync them both on `map.on('load')` and inside update effects. If `map.isStyleLoaded()` is false when new data arrives, defer source updates until the `load` or `styledata` event so asynchronously fetched transit data is never dropped.
+- Dark Basemap Specification: Set `style: 'https://tiles.openfreemap.org/styles/dark'` in `components/MapCanvas.tsx`. OpenFreeMap provides high-contrast dark vector tiles (PBF) with sharp typography, open CORS, zero API keys, and zero watermarks.
 - Campus Energy Efficiency Bar Chart: Sorts and displays buildings ranked by efficiency (lowest EUI = rank #1) with click-to-fly 3D camera navigation.
 - Building Energy Inspector HUD: Floating glassmorphic sheet showing 12-month energy profiles when a building or pillar is clicked.
 ```
 
----
-
-### 🧪 Verification
-Run these commands in your VS Code terminal to verify your setup:
-
-```bash
-# Verify environment configuration and rules
-head -n 5 .env.local
-ls -la .agents/rules/workspace.md
-```
-
-**Expected Terminal Output:**
-```text
-NEXTBUS_BASE_URL="https://nnextbus.nus.edu.sg"
-NEXTBUS_USERNAME="NUSnextbus"
-NEXTBUS_PASSWORD='13dL?zY,3feWR^"T'
-NUS_DIGITAL_TWIN_API="https://www.nus-digital-twin.com/api/v1/buildings"
--rw-r--r--  1 student  staff  2980 Oct  5 14:00 .agents/rules/workspace.md
-```
+![Configure Workspace Rules](images/configure-workspace-rules.png)
 
 ---
 
@@ -246,19 +252,30 @@ Detail the file creations and verification steps for:
 1. `lib/types.ts`: TypeScript definitions for `BuildingEnergy`, `CampusBuilding`, `ShuttleEta`, `BusStop`, `ActiveBus`, `CampusRoute`, and `TransitState`.
 2. `lib/digitaltwin.ts`: API wrapper fetching building footprints from NUS Digital Twin API, calculating procedural 3D heights (18m-48m), and generating 12-month EUI profiles (cooling 55%, equipment 30%, lighting 15%) with landmark fallbacks (COM3, UTown, CLB, S17).
 3. `lib/nextbus.ts`: Authenticated API wrapper for NUS NextBus querying /BusStops and /ShuttleService, projecting active buses along canonical routes (A1, A2, D1, D2), and handling off-service hours (23:00-07:00 SGT) cleanly without synthetic simulations.
-4. `app/api/buildings/route.ts`: Next.js App Router REST API endpoint serving building footprints and EUI metrics (revalidate = 3600).
+4. `app/api/buildings/route.ts`: Next.js App Router REST API endpoint serving lean building footprints and annual EUI metrics under 100 kB (revalidate = 3600).
 5. `app/api/transit/buses/route.ts` & `app/api/transit/stops/route.ts`: Endpoints for live shuttle telemetry (cache: no-store) and campus stop polylines.
-6. `components/MapCanvas.tsx`: High-performance client component initializing MapLibre GL with dark OSM tiles, pitched camera controls, 3D building extrusions, and vertical 3D Energy Pillars (Green/Yellow/Red by EUI).
-7. `lib/threeBusLayer.ts`: Three.js custom layer rendering 3D shuttle buses with vibrant orange roof (#FF7200), white chassis, glowing headlights, 2.5x scale factor, and proper layer ordering above routes.
+6. `components/MapCanvas.tsx`: High-performance client component ('use client'). Initialize MapLibre GL with OpenFreeMap Dark Mode vector style (`https://tiles.openfreemap.org/styles/dark`). Must synchronize dynamic GeoJSON sources (`campus-routes`, `campus-stops`, `campus-buildings`) and `ThreeBusLayer` active buses reliably using `useRef` / `map.on('load')` event listeners so asynchronously fetched transit data never drops due to style loading race conditions.
+7. `lib/threeBusLayer.ts`: Three.js custom layer (`CustomLayerInterface`). In `render(gl, options)`, extract the projection matrix from `options?.defaultProjectionData?.mainMatrix` (or `options`), anchor the camera projection matrix to Kent Ridge center `[103.7745, 1.2970]` using MapLibre double-precision matrix multiplication (`m.multiply(l)`), and position buses in local relative meters `(dx, dy, 0.5)` with 2.5x scale factor and self-illuminating materials to prevent WebGL 32-bit float precision loss.
 8. `components/BusTracker.tsx`: Live telemetry overlay auto-polling every 5 seconds with countdown timer and off-service badge.
 9. `components/CampusEnergyChart.tsx`: Ranked campus energy efficiency bar chart with click-to-fly 3D camera navigation.
 10. `components/BuildingEnergyModal.tsx`: Building inspector side sheet displaying 12-month energy breakdown bars.
-11. `app/page.tsx`: Dynamic client assembly with top telemetry HUD.
+11. `app/page.tsx`: Next.js client component ('use client'). Fetch `/api/buildings` and `/api/transit/buses` inside `useEffect()` on the client to avoid server-side SSR payload bloat (>128 kB). Dynamically import `MapCanvas` with `{ ssr: false }`.
 ```
+
+![Submit /plan Prompt in Antigravity Chat](images/agy-plan-prompt.png)
+
 ### Reviewing & Executing the Implementation Plan
 Antigravity will create the `implementation_plan.md` artifact detailing each component's inputs, outputs, error handling strategies, and verification commands.
 
+<aside class="negative">
+<b>Implementation Plan Troubleshooting:</b>
+If the <b>Implementation Plan</b> artifact does not appear after submitting the <code>/plan</code> prompt, start a new conversation by clicking the <b>+</b> (New Chat) button at the top of the Antigravity chat panel and re-run the prompt.
+</aside>
+
 1. In the Antigravity chat, click on **Implementation Plan** to open the plan viewer in your editor. Review the planned files and architecture.
+
+![Review Implementation Plan](images/agy-implementation-plan.png)
+
 2. When satisfied, click **Proceed** in the top right of the plan viewer tab.
 
 ![Review Implementation Plan and Click Proceed](images/agy-plan-proceed.png)
@@ -297,20 +314,27 @@ Duration: 0:12:00
 
 Now let's launch our local Next.js development server and interact with our live 3D campus twin.
 
-### 1. Static Type Check
-Run static TypeScript validation in your terminal:
-```bash
-npx tsc --noEmit
-```
+### 1. Start the Development Server
+In your VS Code terminal, ensure you are inside the `nus-digital-twin` directory, then start the development server:
 
-### 2. Start the Development Server
-In your terminal, start the Next.js dev server:
 ```bash
 npm run dev
 ```
 
-### 3. Explore the Digital Twin in Your Browser
+![Run Next.js Dev Server](images/npm-run-dev.png)
+
+<aside class="negative">
+<b>Terminal Directory Troubleshooting:</b>
+<ul>
+  <li><b><code>ENOENT: Could not read package.json</code></b>: Your terminal is at the workspace root instead of the project directory. Run <code>cd nus-digital-twin</code> first, then run <code>npm run dev</code>.</li>
+  <li><b><code>cd: no such file or directory / Cannot find path</code></b>: Your active terminal is already inside <code>nus-digital-twin</code>. Simply run <code>npm run dev</code> directly without <code>cd</code>.</li>
+</ul>
+</aside>
+
+### 2. Explore the Digital Twin in Your Browser
 Open `http://localhost:3000` in Google Chrome:
+
+![NUS 3D Campus Digital Twin on Localhost](images/localhost-1.png)
 
 1. **3D Camera & Landmark Navigation**:
    * Observe the dark-mode OpenStreetMap canvas tilted at a 60-degree pitch with smooth 3D perspective.
@@ -349,11 +373,17 @@ Antigravity automatically discovers and loads skills located in your project's `
 ### 2. Install the Frontend Taste Skill
 We will install [`taste-skill`](https://github.com/Leonxlnx/taste-skill) — an open-source collection of design intelligence skills (Minimalist UI, High-End Visual Design, Industrial Brutalism, and Brand Kit).
 
-In your VS Code terminal, run:
+1. In your VS Code terminal panel, click the **+** icon to open a new terminal tab.
+
+![Create New Terminal in VS Code](images/create-new-terminal.png)
+
+2. Run the following command:
 
 ```bash
 npx skills add Leonxlnx/taste-skill -y
 ```
+
+![Install Taste Skill with npx](images/npx-skills-run.png)
 
 > **Why `-y`?**: The `-y` flag skips interactive prompts and automatically selects all design skills for Antigravity, copying them directly into `.agents/skills/`.
 
@@ -366,8 +396,11 @@ Open the **Antigravity Chat Panel** and prompt:
 
 ```text
 /grill-me I want to redesign our NUS 3D Campus Digital Twin command center (`app/page.tsx`, `components/MapCanvas.tsx`, and `components/CampusEnergyChart.tsx`) using our newly installed taste skills. 
-Grill me with questions about my preferred visual aesthetics (e.g., Cyberpunk Neon, Minimalist Dark Architecture, or High-Contrast Tactical Command Center), HUD density, 3D energy pillar color palettes, camera animation speed, and telemetry badge styling before making any code edits.
+Grill me with questions about my preferred visual aesthetics (e.g., Cyberpunk Neon, Minimalist Dark Architecture, or High-Contrast Tactical Command Center), HUD density, 3D energy pillar color palettes, camera animation speed, and telemetry badge styling. Once I confirm my decisions, immediately make the code edits.
 ```
+
+![Run /grill-me Prompt in Antigravity](images/run-grill-me.png)
+
 ### 4. Answer Antigravity's Questions & Apply the Redesign
 1. Antigravity will interview you with interactive multiple-choice questions directly in the chat panel (e.g. Visual Theme, Glassmorphism HUD density, Energy Pillar color ramp, Landmark button styling).
 2. Select your preferred options (or type custom specifications into the write-in box), then click **Continue**.
@@ -385,10 +418,12 @@ Grill me with questions about my preferred visual aesthetics (e.g., Cyberpunk Ne
 
 ---
 
-## Phase 5 (Optional Challenge): One-Click Deploy to Vercel
+## Phase 5 (Optional Challenge): Deploy to Vercel
 Duration: 0:05:00
 
 Now that your 3D digital twin is running locally, your challenge is to transition your system to production by deploying to **Vercel Serverless Edge**.
+
+Create your free Hobby account from [vercel.com/signup](https://vercel.com/signup) for Phase 5 (optional challenge).
 
 ### 1. What is Vercel?
 **Vercel** is the native cloud deployment platform created by the authors of Next.js.
@@ -420,12 +455,16 @@ Now that your 3D digital twin is running locally, your challenge is to transitio
 | `NEXTBUS_PASSWORD` | Secret | `13dL?zY,3feWR^"T` |
 | `NUS_DIGITAL_TWIN_API` | Plaintext | `https://www.nus-digital-twin.com/api/v1/buildings` |
 
+![Configure Environment Variables in Vercel Dashboard](images/vercel-env-vars.png)
+
 4. Redeploy to apply the environment variables:
    * In your Vercel project dashboard, navigate to the **Deployments** tab, click the three-dots menu (`...`) on your latest deployment, and select **Redeploy**.
    * Alternatively, trigger a redeployment from your terminal:
    ```bash
    npx vercel --prod --yes
    ```
+
+![Redeploy Project in Vercel](images/vercel-redeploy.png)
 
 5. Open your live Vercel production URL on your laptop or smartphone!
 
