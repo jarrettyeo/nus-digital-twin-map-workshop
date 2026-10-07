@@ -179,7 +179,7 @@ and press `Enter`. *(VS Code automatically generates both the `.agents` and `rul
 
 ## Payload Size & Data Ingestion Hygiene (< 128 kB)
 - Client-Side Data Fetching: `app/page.tsx` must be a client component (`'use client'`). Do NOT fetch buildings on the server during page SSR. Fetch buildings (`/api/buildings`) and live transit (`/api/transit/buses`) inside `useEffect()` on the client side. This prevents serializing 900+ kB of campus GeoJSON into initial server HTML props and prevents Next.js `large-page-data` warnings.
-- Route Handler Payload Pruning: In `/api/buildings`, return lean building records (`elementId`, `name`, `latitude`, `longitude`, `height`, `category`, and annual `eui`). Generate or load detailed 12-month breakdowns on-demand or inside the client side to keep initial JSON under 100 kB.
+- Route Handler Payload Pruning: In `/api/buildings`, omit raw polygon `footprint` coordinate arrays from the `buildings` array (since footprints are already in `buildingsGeoJson`), but preserve the full nested `eui: { annualTotal, monthlyBreakdown }` object on every building record so client components (`app/page.tsx`, `CampusEnergyChart`, `BuildingEnergyModal`) never fail when reading `.annualTotal` or `.monthlyBreakdown`.
 
 ## Geospatial Anchors & NUS Campus Coordinates
 - Kent Ridge Campus Center: `[103.7745, 1.2970]` (Longitude, Latitude).
