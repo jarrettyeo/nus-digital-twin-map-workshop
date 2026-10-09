@@ -153,45 +153,52 @@ curl -s https://nus-transit-cache-429047621215.asia-southeast1.run.app/api/trans
 ```json
 {
   "asOf": "2026-10-09T15:00:31+08:00",
-  "serviceStatus": "active",
+  "upstreamLastUpdated": "2026-10-09T15:00:25+08:00",
+  "stale": false,
+  "estimated": true,
   "buses": [
     {
-      "id": "A1-1-e1",
+      "id": "A1|PC3941D|1791529200000",
       "route": "A1",
       "plate": "PC3941D",
+      "tripStart": "2026-10-09T15:00:00+08:00",
+      "status": "IN_SERVICE",
       "lat": 1.29524,
       "lng": 103.77412,
       "bearing": 142.5,
       "speedKmh": 28.4,
-      "status": "in_service",
-      "occupancy": "seats_available",
-      "currentSegment": {
-        "fromStop": "UTOWN",
-        "toStop": "UHC",
-        "progress": 0.42
-      },
-      "errorBoundM": 320
+      "arcM": 1420,
+      "routeLengthM": 4916,
+      "prevStop": "UTOWN",
+      "anchorStop": "UHC",
+      "anchorEtaMin": 2,
+      "segmentFraction": 0.42,
+      "errorBoundM": 320,
+      "occupancy": {
+        "ridership": 18,
+        "capacity": 88
+      }
     }
-  ],
-  "upstreamStatus": {
-    "upstreamOk": true,
-    "lastRefreshAt": "2026-10-09T07:00:25.000Z"
-  }
+  ]
 }
 ```
 
 #### Key Fields in `buses[]`
 
-* **`id`** (`string`): Unique identifier for this bus trip instance (e.g. `A1-1-e1`).
+* **`id`** (`string`): Unique identifier for this bus trip instance (`{route}|{plate}|{tripStartMs}`).
 * **`route`** (`string`): Service line (`A1`, `A2`, `D1`, `D2`, `E`, `K`, `L`, or `BTC`).
 * **`plate`** (`string`): Bus license plate registration (e.g. `PC3941D`).
+* **`tripStart`** (`string`): Scheduled trip start timestamp in SGT (`+08:00`).
+* **`status`** (`string`): `"IN_SERVICE"` when traveling between stops, or `"AT_TERMINAL"` when dwelling at a terminus.
 * **`lat`**, **`lng`** (`number`): **Rough approximation** coordinates in WGS-84 decimal degrees.
 * **`bearing`** (`number`): Vehicle heading in degrees clockwise from North (`0` to `360`).
 * **`speedKmh`** (`number`): Estimated segment speed in km/h (`0` to `50`).
-* **`status`** (`string`): `"in_service"` when traveling between stops, or `"terminal_hold"` when dwelling at a terminus.
-* **`occupancy`** (`string`): Passenger crowding level (`"seats_available"`, `"standing_available"`, `"crowded"`, or `"unknown"`).
-* **`currentSegment`** (`object`): The active stop-to-stop leg (`fromStop`, `toStop`, and fractional `progress` from `0.0` to `1.0`).
+* **`arcM`**, **`routeLengthM`** (`number`): Distance traveled along the route polyline and total route length in meters.
+* **`prevStop`**, **`anchorStop`** (`string`): The active stop-to-stop corridor leg (`prevStop` -> `anchorStop`).
+* **`anchorEtaMin`** (`number`): Upcoming arrival countdown (in minutes) at `anchorStop`.
+* **`segmentFraction`** (`number`): Fractional progress (`0.0` at `prevStop` to `1.0` at `anchorStop`).
 * **`errorBoundM`** (`number`): Estimated uncertainty window in meters (e.g. `320`). Show this on hover/tooltips!
+* **`occupancy`** (`object`): `{ ridership: number | null, capacity: number | null }`.
 
 ---
 
@@ -213,13 +220,15 @@ curl -s https://nus-transit-cache-429047621215.asia-southeast1.run.app/api/trans
       "type": "Feature",
       "geometry": {
         "type": "Point",
-        "coordinates": [103.7745, 1.2970]
+        "coordinates": [103.77438, 1.30398]
       },
       "properties": {
-        "code": "UTOWN",
-        "name": "University Town",
-        "caption": "Stephen Riady Centre",
-        "routes": ["A1", "A2", "D1", "D2", "E"]
+        "name": "UTOWN",
+        "caption": "University Town",
+        "LongName": "University Town",
+        "ShortName": "UTown",
+        "latitude": 1.30398,
+        "longitude": 103.77438
       }
     }
   ]
@@ -247,16 +256,20 @@ curl -s https://nus-transit-cache-429047621215.asia-southeast1.run.app/api/trans
       "geometry": {
         "type": "LineString",
         "coordinates": [
-          [103.7745, 1.2970],
-          [103.7750, 1.2965],
-          [103.7758, 1.2958]
+          [103.78038, 1.29105],
+          [103.78112, 1.29142],
+          [103.78440, 1.29320]
         ]
       },
       "properties": {
         "route": "A1",
-        "name": "Route A1 (PGPR to PGPR via UTown)",
-        "color": "#E53935",
-        "stops": ["PGPR", "KR-MRT", "LT27", "UHALL", "UTOWN", "YIH", "CLB", "LT13", "AS7", "BIZ2", "PGPR"]
+        "length_m": 4916,
+        "closed": true,
+        "stops": [
+          { "code": "PGPR", "arc_m": 0, "seq": 0 },
+          { "code": "KR-MRT", "arc_m": 506, "seq": 1 },
+          { "code": "LT27", "arc_m": 1249, "seq": 2 }
+        ]
       }
     }
   ]
@@ -445,20 +458,20 @@ and press `Enter`. *(VS Code automatically generates both the `.agents` and `rul
 
 ## API Contracts & Data Integration
 1. NUS Digital Twin API: `https://www.nus-digital-twin.com/api/v1/buildings`
-   - Attributes: `elementId`, `name`, `address`, `postal`, `latitude`, `longitude`, `height`, `floorCount`, `category`.
-   - Energy Use Intensity (EUI) Schema: Annual total and monthly breakdown in kWh/m² (`cooling` ~55%, `equipment` ~30%, `lighting` ~15%).
+   - Upstream Response Schema: Returns a JSON array of 260 records containing ONLY `{ elementId, name, address, postal, latitude, longitude }`.
+   - Procedural Enrichment in `lib/digitaltwin.ts`: Because upstream only provides point coordinates, `lib/digitaltwin.ts` MUST deterministically derive `height` (18m–48m), `floorCount` (4–12), `category` (`academic` | `residential` | `recreation` | `admin`), a ~36m×36m square GeoJSON polygon footprint centered on `[longitude, latitude]`, and a nested `eui: { annualTotal, monthlyBreakdown }` object (`cooling` ~55%, `equipment` ~30%, `lighting` ~15% in kWh/m²).
 2. NUS Live Transit Proxy API (GCP Cloud Run): `https://nus-transit-cache-429047621215.asia-southeast1.run.app`
    - Live Proxy Base URL: `https://nus-transit-cache-429047621215.asia-southeast1.run.app`
    - Endpoints:
-     - `/api/transit/buses`: Real-time estimated vehicle coordinates along canonical route shapes, occupancy, and status. Positions are derived from per-stop ETAs (no public GPS feed exists). UI MUST label positions as *estimated* and display `errorBoundM` on hover/inspector.
-     - `/api/transit/stops`: Canonical 33 campus bus stops as GeoJSON FeatureCollection.
-     - `/api/transit/routes`: Canonical 8 campus routes with polyline geometries and stop sequences.
+     - `/api/transit/buses`: Returns `{ asOf, upstreamLastUpdated, stale, estimated: true, buses: [...] }`. Each bus item has `{ id, route, plate, tripStart, status: 'IN_SERVICE' | 'AT_TERMINAL', lat, lng, bearing, speedKmh, arcM, routeLengthM, prevStop, anchorStop, anchorEtaMin, segmentFraction, errorBoundM, occupancy: { ridership, capacity } }`. Positions are rough approximations derived from per-stop ETAs (no public GPS feed exists). UI MUST label positions as *estimated* and display `errorBoundM` on hover/inspector.
+     - `/api/transit/stops`: GeoJSON `FeatureCollection` of 33 `Point` features (`coordinates: [lng, lat]`) with `properties: { name, caption, LongName, ShortName, latitude, longitude }` (where `name` is the stop code, e.g. `"UTOWN"`).
+     - `/api/transit/routes`: GeoJSON `FeatureCollection` of 8 `LineString` features with `properties: { route, length_m, closed, stops: Array<{ code, arc_m, seq }> }`. Map route colors on the client/backend (e.g. A1 `#EF4444`, A2 `#F59E0B`, D1 `#3B82F6`, D2 `#10B981`, K `#8B5CF6`, L `#EC4899`, E `#14B8A6`, BTC `#F97316`).
      - `/api/stop/:code`: Cached raw upstream timings for individual stops.
    - Off-Service Handling: Outside operating hours (07:00–23:00 SGT) or when `buses` array is empty, display scheduled operating resumption notices. Do not run synthetic fake wandering simulations.
 
 ## 3D Rendering & WebGL Conventions
 - 3D Building Extrusions (`campus-3d-buildings`): Extruded physical footprints based on building height (18m–48m), colored by category (#38bdf8 academic, #c084fc residential, #34d399 recreation, #fbbf24 admin).
-- 3D Energy Pillars (`campus-energy-pillars`): Concentrated 14m x 14m core polygons rising vertically from building rooftops (`fill-extrusion-base = height`, `fill-extrusion-height = height + (eui * 0.75)`). Color dynamically using MapLibre `step` expression:
+- 3D Energy Pillars (`campus-energy-pillars`): Concentrated 14m x 14m core polygons rising vertically from building rooftops (`fill-extrusion-base = height`, `fill-extrusion-height = height + (eui * 0.75)`, where the GeoJSON feature property `eui` is set to the numeric `building.eui.annualTotal`). Color dynamically using MapLibre `step` expression:
   - Efficient (< 160 kWh/m²): Green `#10B981`
   - Moderate (160–200 kWh/m²): Yellow `#F59E0B`
   - Energy Intensive (> 200 kWh/m²): Red `#EF4444`
@@ -488,10 +501,10 @@ Open the **Antigravity Chat Panel** and enter the following prompt:
 /plan Generate a comprehensive implementation plan to build the NUS 3D Campus Digital Twin & Live Transit Tracker according to our .agents/rules/workspace.md.
 Detail the file creations and verification steps for:
 1. `lib/types.ts`: TypeScript definitions for `BuildingEnergy`, `CampusBuilding`, `ShuttleEta`, `BusStop`, `ActiveBus`, `CampusRoute`, and `TransitState`.
-2. `lib/digitaltwin.ts`: API wrapper fetching building footprints from NUS Digital Twin API, calculating procedural 3D heights (18m-48m), and generating 12-month EUI profiles (cooling 55%, equipment 30%, lighting 15%) with landmark fallbacks (COM3, UTown, CLB, S17).
+2. `lib/digitaltwin.ts`: API wrapper fetching building records from NUS Digital Twin API, procedurally deriving 3D heights (18m-48m), square GeoJSON polygon footprints, and 12-month EUI profiles (cooling 55%, equipment 30%, lighting 15%) with landmark fallbacks (COM3, UTown, CLB, S17).
 3. `lib/transit.ts`: Transit client fetching real-time estimated bus positions, stop coordinates, and route polylines from the dedicated GCP Cloud Run Transit Proxy (`https://nus-transit-cache-429047621215.asia-southeast1.run.app`), rendering vehicle positions with error bounds (`errorBoundM`), and handling off-service hours (23:00-07:00 SGT) cleanly without synthetic simulations.
-4. `app/api/buildings/route.ts`: Next.js App Router REST API endpoint serving lean building footprints and annual EUI metrics under 100 kB (revalidate = 3600).
-5. `app/api/transit/buses/route.ts` & `app/api/transit/stops/route.ts`: Endpoints for live shuttle telemetry (cache: no-store) and campus stop polylines.
+4. `app/api/buildings/route.ts`: Next.js App Router REST API endpoint returning `{ buildings, buildingsGeoJson }` (revalidate = 3600), omitting raw `footprint` arrays from `buildings` while preserving the full nested `eui: { annualTotal, monthlyBreakdown }` object on every building record.
+5. `app/api/transit/buses/route.ts` & `app/api/transit/stops/route.ts`: Route handlers proxying live estimated shuttle telemetry (`cache: 'no-store'`) and static campus stops + route polylines GeoJSON from `NUS_TRANSIT_API`.
 6. `components/MapCanvas.tsx`: High-performance client component ('use client'). Initialize MapLibre GL with OpenFreeMap Dark Mode vector style (`https://tiles.openfreemap.org/styles/dark`). Must synchronize dynamic GeoJSON sources (`campus-routes`, `campus-stops`, `campus-buildings`) and `ThreeBusLayer` active buses reliably using `useRef` / `map.on('load')` event listeners so asynchronously fetched transit data never drops due to style loading race conditions.
 7. `lib/threeBusLayer.ts`: Three.js custom layer (`CustomLayerInterface`). In `render(gl, options)`, extract the projection matrix from `options?.defaultProjectionData?.mainMatrix` (or `options`), anchor the camera projection matrix to Kent Ridge center `[103.7745, 1.2970]` using MapLibre double-precision matrix multiplication (`m.multiply(l)`), and position buses in local relative meters `(dx, dy, 0.5)` with 2.5x scale factor and self-illuminating materials to prevent WebGL 32-bit float precision loss.
 8. `components/BusTracker.tsx`: Live telemetry overlay auto-polling every 5 seconds with countdown timer and off-service badge.
@@ -536,10 +549,10 @@ In this phase, we inspect the core architectural layers generated by Antigravity
 Take a few moments to open and explore each file in VS Code to see how Antigravity structured the codebase:
 
 * **`lib/types.ts`**: Defines strict TypeScript interfaces for building footprints (`CampusBuilding`), 12-month energy profiles (`BuildingEnergy`), shuttle telemetry (`ActiveBus`), bus stops (`BusStop`), and aggregated transit states (`TransitState`).
-* **`lib/digitaltwin.ts`**: Fetches building geometries from `https://www.nus-digital-twin.com/api/v1/buildings`, augmenting each record with procedural 3D heights (18m–48m) and tropical EUI breakdowns (cooling ~55%, equipment ~30%, lighting ~15%).
+* **`lib/digitaltwin.ts`**: Fetches building coordinates from `https://www.nus-digital-twin.com/api/v1/buildings`, augmenting each record with procedural 3D heights (18m–48m), square GeoJSON polygon footprints, and tropical EUI breakdowns (cooling ~55%, equipment ~30%, lighting ~15%).
 * **`lib/transit.ts`**: Connects to the **NUS Live Transit Proxy** on GCP Cloud Run (`https://nus-transit-cache-429047621215.asia-southeast1.run.app`). It consumes real-time estimated bus positions with error bounds (`errorBoundM`), stop coordinates, and route polylines, handling off-service hours (23:00–07:00 SGT) cleanly without fake wandering simulations.
 * **`lib/threeBusLayer.ts`**: Implements a MapLibre `CustomLayerInterface` named `nus-shuttle-bus-3d`. It uses Three.js to render 3D shuttle bus models with self-illuminating materials (vibrant orange roof `#FF7200`, white chassis, glowing LED headlights) and scales them by `2.5x` in Mercator space so they are unmistakably visible across campus roads.
-* **`components/MapCanvas.tsx`**: Renders the 3D MapLibre canvas with dark Carto/OSM raster tiles and two synchronized `fill-extrusion` layers:
+* **`components/MapCanvas.tsx`**: Renders the 3D MapLibre canvas with OpenFreeMap Dark Mode vector tiles (`https://tiles.openfreemap.org/styles/dark`) and two synchronized `fill-extrusion` layers:
   1. `campus-3d-buildings`: Base physical footprints extruded to real building heights.
   2. `campus-energy-pillars`: 14m x 14m core rooftop pillars rising proportionally to EUI (`height + eui * 0.75`), styled dynamically with MapLibre's `step` expression (Green `<160`, Yellow `160-200`, Red `>200`).
 
