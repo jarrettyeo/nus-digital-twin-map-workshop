@@ -7,7 +7,7 @@ Duration: 0:04:00
 
 In this codelab, you will build a state-of-the-art **3D NUS Campus Digital Twin & Real-Time Transit Tracker** — an interactive geospatial command center combining:
 1. **Interactive 3D Campus Canvas**: A high-performance WebGL digital twin rendered with **MapLibre GL JS** and **OpenStreetMap**, featuring dynamic 3D building extrusions, pitched camera controls, and smooth landmark fly-to transitions across Kent Ridge campus.
-2. **Real-Time Campus Transit Tracking**: Live shuttle bus telemetry directly integrated with the official **NUS NextBus API**, delivering authentic stop coordinates, active vehicle telemetry, and live arrival countdowns (ETAs). Learn how real-world ETA-based tracking operates without fake simulations, handling scheduled operations and off-service status cleanly.
+2. **Real-Time Campus Transit Tracking**: Live shuttle bus telemetry powered by the dedicated **GCP Cloud Run Transit Proxy** (`https://nus-transit-cache-429047621215.asia-southeast1.run.app`), delivering authentic stop coordinates, canonical route polylines, and real-time **estimated** vehicle positions derived from per-stop arrival countdowns with per-segment error bounds (`errorBoundM`). Learn how real-world tracking operates without fake simulations, handling scheduled operations and off-service status cleanly.
 3. **3D Energy Pillars & Campus Energy Efficiency Analytics**: Vertical 3D extrusions rising from campus buildings with heights proportional to Energy Use Intensity (EUI), color-coded Green/Yellow/Red, paired with an interactive **Campus Energy Efficiency Bar Chart** that ranks campus facilities and flies the 3D camera to any selected building, alongside a detailed click-to-inspect Energy HUD pulling from the official **NUS Digital Twin API**.
 4. **Cloud-Native Serverless Deployment**: Production deployment on **Vercel** with Next.js App Router serverless route handlers, secured API proxy caching, and worldwide edge CDN delivery.
 
@@ -20,10 +20,10 @@ This diagram illustrates how your Next.js application ingests university telemet
                       ┌────────────────────────────────────────────────────────┐
                       │              University & Geospatial APIs              │
                       │  ┌────────────────────────┐  ┌───────────────────────┐ │
-                      │  │ NUS NextBus API        │  │ NUS Digital Twin API  │ │
+                      │  │ NUS Transit Proxy (GCP)│  │ NUS Digital Twin API  │ │
                       │  │  - Stop Coordinates    │  │  - Building Geometry  │ │
                       │  │  - Live Arrival ETAs   │  │  - Energy Intensity   │ │
-                      │  │  - Active Telemetry    │  │  (Cooling, Power, Lux)│ │
+                      │  │  - Estimated Positions │  │  (Cooling, Power, Lux)│ │
                       │  │  - Off-Service Status  │  │                       │ │
                       │  └───────────┬────────────┘  └───────────┬───────────┘ │
                       └──────────────┼───────────────────────────┼─────────────┘
@@ -33,7 +33,7 @@ This diagram illustrates how your Next.js application ingests university telemet
                       │          Next.js App Router Backend Handlers           │
                       │   • /api/transit/buses        • /api/buildings         │
                       │   • /api/transit/stops        • lib/digitaltwin.ts     │
-                      │   • lib/nextbus.ts            • lib/types.ts           │
+                      │   • lib/transit.ts            • lib/types.ts           │
                       └────────────────────────────┬───────────────────────────┘
                                                    │
                                                    ▼
@@ -69,7 +69,7 @@ In this workshop, you will practice **Spec-Driven Development (SDD)** with **Goo
 > - How to configure Antigravity workspace rules (`.agents/rules/workspace.md`) to enforce geospatial, 3D graphics, and university API standards.
 > - How to use **Planning Mode (`/plan`)** to generate an entire production-grade full-stack 3D application from architectural specifications.
 > - How to consume the **NUS Digital Twin API** (`nus-digital-twin.com/api/v1/buildings`) for building footprints and energy intensity metrics.
-> - How to connect to the authenticated **NUS NextBus API** for real-time stop coordinates, active telemetry, and live arrival countdowns (ETAs) without fake simulations.
+> - How to connect to the dedicated **NUS Live Transit Proxy** (`https://nus-transit-cache-429047621215.asia-southeast1.run.app`) for real-time stop coordinates, route polylines, and estimated vehicle positions with error bounds (`errorBoundM`).
 > - How to render a 3D vector map with **MapLibre GL JS**, building extrusions, and vertical **3D Energy Pillars** color-coded Green/Yellow/Red by EUI.
 > - How to engineer a revised **3D Bus renderer** with Three.js proper layer ordering (bus above route lines), self-illuminating materials (vibrant orange roof `#FF7200`, white chassis, glowing headlights), and 2.5x Mercator scaling.
 > - How to use **Agent Skills** and **Interactive Discovery (`/grill-me`)** to interview Antigravity and dynamically restyle the command center UI.
@@ -77,8 +77,262 @@ In this workshop, you will practice **Spec-Driven Development (SDD)** with **Goo
 
 ---
 
+## NUS Live Transit Proxy API Reference
+
+> [!IMPORTANT]
+> **A quick note on data sources and bus locations:**
+> This service is a lightweight in-memory caching proxy sitting in front of one of the community NUS shuttle bus web apps out there.
+>
+> The upstream university transit backend only publishes arrival countdowns for each bus stop—**there is no public live GPS feed from the buses**. Because of that, all vehicle coordinates returned here are **rough approximations** calculated using dead reckoning along the campus road polylines.
+>
+> Every bus object carries an `errorBoundM` field (in meters) indicating the positional uncertainty along its current road segment. In your app UI, always label these markers as **estimated positions** rather than live GPS pins!
+
+* **Base URL**: `https://nus-transit-cache-429047621215.asia-southeast1.run.app`
+* **Hosted on**: Google Cloud Run (`asia-southeast1` — Singapore)
+* **Auth**: None (public read-only proxy)
+* **CORS**: `Access-Control-Allow-Origin: *` enabled on all routes
+
+---
+
+### Quick Endpoint Reference
+
+| Method | Route | Description | Caching |
+| :--- | :--- | :--- | :--- |
+| `GET` | [`/health`](#1-get-health) | Service health check, uptime, and upstream connectivity | Real-time (`no-cache`) |
+| `GET` | [`/api/transit/buses`](#2-get-apitransitbuses) | Estimated bus positions, headings, speeds, and error bounds | 5s cache (`X-Cache: HIT`) |
+| `GET` | [`/api/transit/stops`](#3-get-apitransitstops) | All 33 campus bus stops (GeoJSON Point FeatureCollection) | 1 hour (`max-age=3600`) |
+| `GET` | [`/api/transit/routes`](#4-get-apitransitroutes) | 8 official campus route polylines (GeoJSON LineString) | 1 hour (`max-age=3600`) |
+| `GET` | [`/api/stop/{code}`](#5-get-apistopcode) | Raw upstream arrival timings for an individual stop | 15s cache (`X-Cache: HIT`) |
+| `GET` | [`/api/transit/debug`](#6-get-apitransitdebug) | Raw observations, active trips, and learned segment traversal times | Diagnostic (`no-cache`) |
+| `OPTIONS` | `/*` | CORS preflight handler | 24-hour preflight |
+
+---
+
+### 1. `GET /health`
+
+Checks if the Cloud Run instance is alive and healthy, and confirms it can talk to upstream shuttle bus feeds.
+
+```bash
+curl -s https://nus-transit-cache-429047621215.asia-southeast1.run.app/health
+```
+
+#### Response (`200 OK`)
+
+```json
+{
+  "status": "healthy",
+  "lastRefreshAt": "2026-10-09T07:00:39.000Z",
+  "upstreamOk": true,
+  "upstreamDegraded": false,
+  "stopsCached": 33,
+  "tripsTracked": 6,
+  "uptimeSeconds": 1420
+}
+```
+
+---
+
+### 2. `GET /api/transit/buses`
+
+Returns real-time estimated vehicle positions for the active shuttle bus fleet.
+
+> [!NOTE]
+> Locations are **rough approximations** projected along the route paths using arrival countdown deltas and speed clamps (capped at 50 km/h).
+
+```bash
+curl -s https://nus-transit-cache-429047621215.asia-southeast1.run.app/api/transit/buses
+```
+
+#### Response Headers
+* `Content-Type`: `application/json`
+* `Cache-Control`: `public, max-age=5, stale-while-revalidate=10`
+* `X-Cache`: `HIT` (or `STALE-FALLBACK` if upstream is briefly unreachable)
+
+#### Response (`200 OK`)
+
+```json
+{
+  "asOf": "2026-10-09T15:00:31+08:00",
+  "serviceStatus": "active",
+  "buses": [
+    {
+      "id": "A1-1-e1",
+      "route": "A1",
+      "plate": "PC3941D",
+      "lat": 1.29524,
+      "lng": 103.77412,
+      "bearing": 142.5,
+      "speedKmh": 28.4,
+      "status": "in_service",
+      "occupancy": "seats_available",
+      "currentSegment": {
+        "fromStop": "UTOWN",
+        "toStop": "UHC",
+        "progress": 0.42
+      },
+      "errorBoundM": 320
+    }
+  ],
+  "upstreamStatus": {
+    "upstreamOk": true,
+    "lastRefreshAt": "2026-10-09T07:00:25.000Z"
+  }
+}
+```
+
+#### Key Fields in `buses[]`
+
+* **`id`** (`string`): Unique identifier for this bus trip instance (e.g. `A1-1-e1`).
+* **`route`** (`string`): Service line (`A1`, `A2`, `D1`, `D2`, `E`, `K`, `L`, or `BTC`).
+* **`plate`** (`string`): Bus license plate registration (e.g. `PC3941D`).
+* **`lat`**, **`lng`** (`number`): **Rough approximation** coordinates in WGS-84 decimal degrees.
+* **`bearing`** (`number`): Vehicle heading in degrees clockwise from North (`0` to `360`).
+* **`speedKmh`** (`number`): Estimated segment speed in km/h (`0` to `50`).
+* **`status`** (`string`): `"in_service"` when traveling between stops, or `"terminal_hold"` when dwelling at a terminus.
+* **`occupancy`** (`string`): Passenger crowding level (`"seats_available"`, `"standing_available"`, `"crowded"`, or `"unknown"`).
+* **`currentSegment`** (`object`): The active stop-to-stop leg (`fromStop`, `toStop`, and fractional `progress` from `0.0` to `1.0`).
+* **`errorBoundM`** (`number`): Estimated uncertainty window in meters (e.g. `320`). Show this on hover/tooltips!
+
+---
+
+### 3. `GET /api/transit/stops`
+
+Returns all 33 canonical campus shuttle bus stops as a standard GeoJSON `FeatureCollection`.
+
+```bash
+curl -s https://nus-transit-cache-429047621215.asia-southeast1.run.app/api/transit/stops
+```
+
+#### Response (`200 OK`)
+
+```json
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [103.7745, 1.2970]
+      },
+      "properties": {
+        "code": "UTOWN",
+        "name": "University Town",
+        "caption": "Stephen Riady Centre",
+        "routes": ["A1", "A2", "D1", "D2", "E"]
+      }
+    }
+  ]
+}
+```
+
+---
+
+### 4. `GET /api/transit/routes`
+
+Returns the 8 official campus route paths as a GeoJSON `FeatureCollection` of road polylines.
+
+```bash
+curl -s https://nus-transit-cache-429047621215.asia-southeast1.run.app/api/transit/routes
+```
+
+#### Response (`200 OK`)
+
+```json
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [103.7745, 1.2970],
+          [103.7750, 1.2965],
+          [103.7758, 1.2958]
+        ]
+      },
+      "properties": {
+        "route": "A1",
+        "name": "Route A1 (PGPR to PGPR via UTown)",
+        "color": "#E53935",
+        "stops": ["PGPR", "KR-MRT", "LT27", "UHALL", "UTOWN", "YIH", "CLB", "LT13", "AS7", "BIZ2", "PGPR"]
+      }
+    }
+  ]
+}
+```
+
+---
+
+### 5. `GET /api/stop/{code}`
+
+Pass-through route to fetch raw arrival countdowns and oncoming plates for a single bus stop code.
+
+```bash
+curl -s https://nus-transit-cache-429047621215.asia-southeast1.run.app/api/stop/KR-MRT
+```
+
+#### Path Parameters
+* **`code`** (`string`, required): Case-insensitive bus stop code (e.g. `KR-MRT`, `UTOWN`, `COM3`, `PGPR`).
+
+#### Responses
+* **`200 OK`**: Cached raw arrival countdown data from upstream.
+* **`404 Not Found`**: The requested code is not one of the 33 valid campus stops.
+  ```json
+  { "error": "Unknown stop code: FOOBAR" }
+  ```
+* **`503 Service Unavailable`**: Valid stop code, but initial cache is warming up.
+
+---
+
+### 6. `GET /api/transit/debug`
+
+Diagnostics endpoint showing raw observations, active trip groupings, and dynamic moving-median travel times between stops.
+
+```bash
+curl -s https://nus-transit-cache-429047621215.asia-southeast1.run.app/api/transit/debug
+```
+
+#### Response (`200 OK`)
+
+```json
+{
+  "asOf": "2026-10-09T15:00:31+08:00",
+  "observationsCount": 12,
+  "tripsCount": 6,
+  "trips": { "...": "..." },
+  "learnedTau": {
+    "A1|PGPR|KR-MRT": {
+      "samples": 8,
+      "median": 165
+    }
+  },
+  "upstreamStatus": {
+    "upstreamOk": true,
+    "upstreamDegraded": false,
+    "lastRefreshAt": "2026-10-09T07:00:25.000Z"
+  }
+}
+```
+
+---
+
+### 7. `OPTIONS /*`
+
+Handles CORS preflight across all endpoints so your client code can query from `localhost:3000` or production domains without browser cross-origin blocks.
+
+```http
+HTTP/1.1 204 No Content
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Methods: GET, OPTIONS
+Access-Control-Allow-Headers: Content-Type, Authorization
+Access-Control-Max-Age: 86400
+```
+
+---
+
 ## Environment Setup, Antigravity Rules & Scaffolding
-Duration: 0:08:00
 
 In this step, you will initialize the Next.js TypeScript project, install modern geospatial and 3D rendering packages, configure your university credentials, and anchor Antigravity with workspace rules.
 
@@ -130,10 +384,8 @@ npm install -D tsx @types/node
 3. Add the following university API configuration:
 
 ```env
-# NUS NextBus API Basic Authentication (Public University Credentials)
-NEXTBUS_BASE_URL="https://nnextbus.nus.edu.sg"
-NEXTBUS_USERNAME="NUSnextbus"
-NEXTBUS_PASSWORD='13dL?zY,3feWR^"T'
+# NUS Live Transit Proxy API Endpoint (GCP Cloud Run - Free, open CORS, zero API keys)
+NUS_TRANSIT_API="https://nus-transit-cache-429047621215.asia-southeast1.run.app"
 
 # NUS Digital Twin Public API Endpoint
 NUS_DIGITAL_TWIN_API="https://www.nus-digital-twin.com/api/v1/buildings"
@@ -143,9 +395,9 @@ Save the file using `Ctrl+S` (Windows) or `Cmd+S` (Mac).
 
 ![Save .env.local Configuration](images/save-env-local.png)
 
-> [!WARNING]
-> **Security & Quotation Note:**
-> The NextBus password contains special characters (`^`, `"`, `?`). Always wrap it in single quotes (`'13dL?zY,3feWR^"T'`) in your `.env.local` to prevent shell expansion errors.
+> [!NOTE]
+> **Cloud Run Transit Proxy Architecture:**
+> The live transit proxy runs on **Google Cloud Run** in `asia-southeast1`. It consumes upstream university transit feeds, caches payloads in-memory, derives real-time **estimated** vehicle positions bounded by stop-to-stop segments (`errorBoundM`), and serves all 100 workshop students with zero API keys and 3–5 ms latency.
 
 ---
 
@@ -195,11 +447,14 @@ and press `Enter`. *(VS Code automatically generates both the `.agents` and `rul
 1. NUS Digital Twin API: `https://www.nus-digital-twin.com/api/v1/buildings`
    - Attributes: `elementId`, `name`, `address`, `postal`, `latitude`, `longitude`, `height`, `floorCount`, `category`.
    - Energy Use Intensity (EUI) Schema: Annual total and monthly breakdown in kWh/m² (`cooling` ~55%, `equipment` ~30%, `lighting` ~15%).
-2. NUS NextBus API: `https://nnextbus.nus.edu.sg/`
-   - Basic Auth: `NEXTBUS_USERNAME` and `NEXTBUS_PASSWORD`.
-   - Endpoints: `/BusStops`, `/ShuttleService?busstopname=<STOP>`.
-   - Authentic Telemetry & ETA Tracking: Deduplicate oncoming vehicles across key interchange stops (`UTOWN`, `KR-MRT`, `COM3`, `CLB`, `LT27`, `BIZ2`), projecting coordinates along canonical route shapes (A1, A2, D1, D2).
-   - Off-Service Handling: Outside operating hours (07:00–23:00 SGT), set `isOffService: true` and display scheduled operating resumption notices. Do not run synthetic fake wandering simulations.
+2. NUS Live Transit Proxy API (GCP Cloud Run): `https://nus-transit-cache-429047621215.asia-southeast1.run.app`
+   - Live Proxy Base URL: `https://nus-transit-cache-429047621215.asia-southeast1.run.app`
+   - Endpoints:
+     - `/api/transit/buses`: Real-time estimated vehicle coordinates along canonical route shapes, occupancy, and status. Positions are derived from per-stop ETAs (no public GPS feed exists). UI MUST label positions as *estimated* and display `errorBoundM` on hover/inspector.
+     - `/api/transit/stops`: Canonical 33 campus bus stops as GeoJSON FeatureCollection.
+     - `/api/transit/routes`: Canonical 8 campus routes with polyline geometries and stop sequences.
+     - `/api/stop/:code`: Cached raw upstream timings for individual stops.
+   - Off-Service Handling: Outside operating hours (07:00–23:00 SGT) or when `buses` array is empty, display scheduled operating resumption notices. Do not run synthetic fake wandering simulations.
 
 ## 3D Rendering & WebGL Conventions
 - 3D Building Extrusions (`campus-3d-buildings`): Extruded physical footprints based on building height (18m–48m), colored by category (#38bdf8 academic, #c084fc residential, #34d399 recreation, #fbbf24 admin).
@@ -207,7 +462,7 @@ and press `Enter`. *(VS Code automatically generates both the `.agents` and `rul
   - Efficient (< 160 kWh/m²): Green `#10B981`
   - Moderate (160–200 kWh/m²): Yellow `#F59E0B`
   - Energy Intensive (> 200 kWh/m²): Red `#EF4444`
-- Revised 3D Bus Renderer (`nus-shuttle-bus-3d`): Three.js custom layer registered strictly *after* route polylines (layer ordering: roads -> routes -> 3D buses). Self-illuminating materials (vibrant orange roof `#FF7200`, crisp white chassis, warm white glowing headlights, taillights, rubber wheels) with 2.5x scale factor.
+- Revised 3D Bus Renderer (`nus-shuttle-bus-3d`): Three.js custom layer registered strictly *after* route polylines (layer ordering: roads -> routes -> 3D buses). Self-illuminating materials (vibrant orange roof `#FF7200`, crisp white chassis, warm white glowing headlights, taillights, rubber wheels) with 2.5x scale factor. Bus markers must indicate *Estimated Position* and show `errorBoundM` (segment bounds) on tooltip/inspector.
 - Three.js Local Campus Matrix Anchor: In `lib/threeBusLayer.ts`, extract the camera projection matrix from `options?.defaultProjectionData?.mainMatrix` (or `options` if passed as a `Float64Array`) to obtain MapLibre's Mercator matrix. Anchor it to Kent Ridge Center `[103.7745, 1.2970]` using double-precision matrix multiplication (`camera.projectionMatrix = m.multiply(l)`, where `l` translates to the campus origin and scales with `meterInMercatorCoordinateUnits()`). Position each active bus in local meters `(dx, dy, dz)` relative to Kent Ridge Center so WebGL 32-bit float shaders render crisp, full-sized 3D vehicles without precision loss or depth clipping.
 - MapLibre Async Data Synchronization: `components/MapCanvas.tsx` must store incoming `activeBuses`, `buildingsGeoJson`, and `stopsAndRoutesGeoJson` in `useRef`s or sync them both on `map.on('load')` and inside update effects. If `map.isStyleLoaded()` is false when new data arrives, defer source updates until the `load` or `styledata` event so asynchronously fetched transit data is never dropped.
 - Dark Basemap Specification: Set `style: 'https://tiles.openfreemap.org/styles/dark'` in `components/MapCanvas.tsx`. OpenFreeMap provides high-contrast dark vector tiles (PBF) with sharp typography, open CORS, zero API keys, and zero watermarks.
@@ -234,7 +489,7 @@ Open the **Antigravity Chat Panel** and enter the following prompt:
 Detail the file creations and verification steps for:
 1. `lib/types.ts`: TypeScript definitions for `BuildingEnergy`, `CampusBuilding`, `ShuttleEta`, `BusStop`, `ActiveBus`, `CampusRoute`, and `TransitState`.
 2. `lib/digitaltwin.ts`: API wrapper fetching building footprints from NUS Digital Twin API, calculating procedural 3D heights (18m-48m), and generating 12-month EUI profiles (cooling 55%, equipment 30%, lighting 15%) with landmark fallbacks (COM3, UTown, CLB, S17).
-3. `lib/nextbus.ts`: Authenticated API wrapper for NUS NextBus querying /BusStops and /ShuttleService, projecting active buses along canonical routes (A1, A2, D1, D2), and handling off-service hours (23:00-07:00 SGT) cleanly without synthetic simulations.
+3. `lib/transit.ts`: Transit client fetching real-time estimated bus positions, stop coordinates, and route polylines from the dedicated GCP Cloud Run Transit Proxy (`https://nus-transit-cache-429047621215.asia-southeast1.run.app`), rendering vehicle positions with error bounds (`errorBoundM`), and handling off-service hours (23:00-07:00 SGT) cleanly without synthetic simulations.
 4. `app/api/buildings/route.ts`: Next.js App Router REST API endpoint serving lean building footprints and annual EUI metrics under 100 kB (revalidate = 3600).
 5. `app/api/transit/buses/route.ts` & `app/api/transit/stops/route.ts`: Endpoints for live shuttle telemetry (cache: no-store) and campus stop polylines.
 6. `components/MapCanvas.tsx`: High-performance client component ('use client'). Initialize MapLibre GL with OpenFreeMap Dark Mode vector style (`https://tiles.openfreemap.org/styles/dark`). Must synchronize dynamic GeoJSON sources (`campus-routes`, `campus-stops`, `campus-buildings`) and `ThreeBusLayer` active buses reliably using `useRef` / `map.on('load')` event listeners so asynchronously fetched transit data never drops due to style loading race conditions.
@@ -282,7 +537,7 @@ Take a few moments to open and explore each file in VS Code to see how Antigravi
 
 * **`lib/types.ts`**: Defines strict TypeScript interfaces for building footprints (`CampusBuilding`), 12-month energy profiles (`BuildingEnergy`), shuttle telemetry (`ActiveBus`), bus stops (`BusStop`), and aggregated transit states (`TransitState`).
 * **`lib/digitaltwin.ts`**: Fetches building geometries from `https://www.nus-digital-twin.com/api/v1/buildings`, augmenting each record with procedural 3D heights (18m–48m) and tropical EUI breakdowns (cooling ~55%, equipment ~30%, lighting ~15%).
-* **`lib/nextbus.ts`**: Handles authenticated Basic Auth calls to the NUS NextBus API. It queries `/BusStops` and `/ShuttleService`, projects vehicles along canonical campus routes (A1, A2, D1, D2), and handles off-service hours (23:00–07:00 SGT) cleanly without fake wandering simulations.
+* **`lib/transit.ts`**: Connects to the **NUS Live Transit Proxy** on GCP Cloud Run (`https://nus-transit-cache-429047621215.asia-southeast1.run.app`). It consumes real-time estimated bus positions with error bounds (`errorBoundM`), stop coordinates, and route polylines, handling off-service hours (23:00–07:00 SGT) cleanly without fake wandering simulations.
 * **`lib/threeBusLayer.ts`**: Implements a MapLibre `CustomLayerInterface` named `nus-shuttle-bus-3d`. It uses Three.js to render 3D shuttle bus models with self-illuminating materials (vibrant orange roof `#FF7200`, white chassis, glowing LED headlights) and scales them by `2.5x` in Mercator space so they are unmistakably visible across campus roads.
 * **`components/MapCanvas.tsx`**: Renders the 3D MapLibre canvas with dark Carto/OSM raster tiles and two synchronized `fill-extrusion` layers:
   1. `campus-3d-buildings`: Base physical footprints extruded to real building heights.
@@ -325,9 +580,9 @@ Open `http://localhost:3000` in Google Chrome:
      * **Stephen Riady Centre (UTown)**: Emerald green pillar (efficient 148 kWh/m²).
      * **Central Library (CLB)**: Amber yellow pillar (moderate 172 kWh/m²).
      * **School of Computing (COM3)**: Towering red pillar (energy-intensive 215 kWh/m²).
-3. **Live NextBus Telemetry HUD**:
+3. **Live Campus Transit HUD**:
    * Look at the top-right telemetry pill. Notice the 5-second countdown timer polling `/api/transit/buses`.
-   * During daytime operations, active shuttle buses glide along routes with correct headings.
+   * During daytime operations, active shuttle buses glide along routes with correct headings. Markers indicate **Estimated Position** and display the segment error bound (e.g. `±415m`) on hover/inspector.
    * During late-night hours (23:00–07:00 SGT), notice the sleek `Services Off-Peak (07:00 Resumption)` badge.
 4. **Interactive Campus Energy Efficiency Ranking Bar Chart**:
    * Look at the bottom-right analytics card ranking facilities from most efficient (#1) to least efficient.
@@ -433,9 +688,7 @@ Create your free Hobby account from [vercel.com/signup](https://vercel.com/signu
 
 | Variable Key | Type | Production Value |
 | :--- | :--- | :--- |
-| `NEXTBUS_BASE_URL` | Plaintext | `https://nnextbus.nus.edu.sg` |
-| `NEXTBUS_USERNAME` | Plaintext | `NUSnextbus` |
-| `NEXTBUS_PASSWORD` | Secret | `13dL?zY,3feWR^"T` |
+| `NUS_TRANSIT_API` | Plaintext | `https://nus-transit-cache-429047621215.asia-southeast1.run.app` |
 | `NUS_DIGITAL_TWIN_API` | Plaintext | `https://www.nus-digital-twin.com/api/v1/buildings` |
 
 ![Configure Environment Variables in Vercel Dashboard](images/vercel-env-vars.png)
